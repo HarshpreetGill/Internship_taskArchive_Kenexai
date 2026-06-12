@@ -1348,3 +1348,1509 @@ LEFT JOIN Billing b
     ON p.patient_id=b.patient_id;
 
 
+
+
+/*
+
+ASSIGNMENT 3
+
+*/
+
+USE HealthCarePlus_DB;
+GO
+
+-- TASK 1: WINDOW FUNCTIONS - ROW_NUMBER()
+
+--1. Assign unique row number to each patient ordered by registration date
+
+SELECT
+    patient_id,
+    first_name,
+    last_name,
+    registration_date,
+    ROW_NUMBER() OVER(ORDER BY registration_date) AS RowNum
+FROM Patient;
+
+--2. Number doctors within each department ordered by years of service
+
+SELECT
+    doctor_id,
+    first_name,
+    last_name,
+    dept_id,
+    ROW_NUMBER() OVER
+    (
+        PARTITION BY dept_id
+        ORDER BY doctor_id
+    ) AS Doctor_Number
+FROM Doctor;
+
+--3. Rank appointments for each patient by appointment date
+
+SELECT
+    patient_id,
+    appt_id,
+    appointment_date,
+    ROW_NUMBER() OVER
+    (
+        PARTITION BY patient_id
+        ORDER BY appointment_date DESC
+    ) AS Appointment_Rank
+FROM Appointment;
+
+
+--4. Number billing records for each patient
+
+SELECT
+    patient_id,
+    bill_id,
+    amount,
+    ROW_NUMBER() OVER
+    (
+        PARTITION BY patient_id
+        ORDER BY bill_date
+    ) AS Bill_Number
+FROM Billing;
+
+--5. Create sequential record numbers within each diagnosis history
+
+SELECT
+    patient_id,
+    diagnosis,
+    record_date,
+    ROW_NUMBER() OVER
+    (
+        PARTITION BY patient_id
+        ORDER BY record_date
+    ) AS Diagnosis_Order
+FROM Medical_Record;
+
+
+--TASK 2: RANK AND DENSE_RANK
+
+--1. Top Billing Analysis
+
+SELECT
+    bill_id,
+    patient_id,
+    amount,
+    RANK() OVER(ORDER BY amount DESC) AS Rank_No,
+    DENSE_RANK() OVER(ORDER BY amount DESC) AS Dense_Rank_No
+FROM Billing;
+
+--2. Doctor Performance
+
+SELECT
+    d.doctor_id,
+    d.first_name,
+    d.last_name,
+    dp.dept_name,
+    COUNT(a.appt_id) AS Completed_Appointments,
+
+    RANK() OVER
+    (
+        PARTITION BY dp.dept_name
+        ORDER BY COUNT(a.appt_id) DESC
+    ) AS Doctor_Rank
+
+FROM Doctor d
+JOIN Department dp
+ON d.dept_id = dp.dept_id
+
+LEFT JOIN Appointment a
+ON d.doctor_id = a.doctor_id
+AND a.status='Completed'
+
+GROUP BY
+d.doctor_id,
+d.first_name,
+d.last_name,
+dp.dept_name;
+
+--3. Patient Visit Frequency
+
+SELECT
+    TOP 10
+    patient_id,
+    COUNT(*) AS Visit_Count,
+
+    RANK() OVER
+    (
+        ORDER BY COUNT(*) DESC
+    ) AS Visit_Rank
+
+FROM Appointment
+GROUP BY patient_id;
+
+--4. Department Revenue Ranking
+
+SELECT
+    dp.dept_name,
+    SUM(b.amount) AS Revenue,
+
+    DENSE_RANK() OVER
+    (
+        ORDER BY SUM(b.amount) DESC
+    ) AS Revenue_Rank
+
+FROM Department dp
+JOIN Doctor d
+ON dp.dept_id=d.dept_id
+
+JOIN Appointment a
+ON d.doctor_id=a.doctor_id
+
+JOIN Billing b
+ON a.patient_id=b.patient_id
+
+GROUP BY dp.dept_name;
+
+--5. Prescription Frequency
+
+SELECT
+    medication,
+    COUNT(*) AS Times_Prescribed,
+
+    RANK() OVER
+    (
+        ORDER BY COUNT(*) DESC
+    ) AS Medication_Rank
+
+FROM Prescription
+GROUP BY medication;
+
+-- TASK 3: LAG AND LEAD FUNCTIONS
+
+--1. Appointment Follow-Ups
+
+SELECT
+    patient_id,
+    appointment_date,
+
+    LAG(appointment_date)
+    OVER
+    (
+        PARTITION BY patient_id
+        ORDER BY appointment_date
+    ) AS Previous_Appointment,
+
+    DATEDIFF
+    (
+        DAY,
+        LAG(appointment_date)
+        OVER
+        (
+            PARTITION BY patient_id
+            ORDER BY appointment_date
+        ),
+        appointment_date
+    ) AS Days_Between
+
+FROM Appointment;
+
+--2. Billing Trends
+
+SELECT
+    patient_id,
+    bill_date,
+    amount,
+
+    LAG(amount)
+    OVER
+    (
+        PARTITION BY patient_id
+        ORDER BY bill_date
+    ) AS Previous_Bill,
+
+    amount -
+    LAG(amount)
+    OVER
+    (
+        PARTITION BY patient_id
+        ORDER BY bill_date
+    ) AS Difference
+
+FROM Billing;
+
+--3. Doctor Consultation Fee Changes
+
+SELECT
+    doctor_id,
+    first_name,
+    last_name,
+
+    LEAD(doctor_id)
+    OVER(ORDER BY doctor_id) AS Next_Doctor
+
+FROM Doctor;
+
+--4. Department Appointment Flow
+
+WITH DailyAppointments AS
+(
+    SELECT
+        d.dept_id,
+        dp.dept_name,
+        appointment_date,
+        COUNT(*) AS Daily_Count
+
+    FROM Appointment a
+    JOIN Doctor d
+        ON a.doctor_id=d.doctor_id
+    JOIN Department dp
+        ON d.dept_id=dp.dept_id
+
+    GROUP BY
+        d.dept_id,
+        dp.dept_name,
+        appointment_date
+)
+
+SELECT
+    dept_name,
+    appointment_date,
+    Daily_Count,
+
+    LAG(Daily_Count)
+    OVER
+    (
+        PARTITION BY dept_name
+        ORDER BY appointment_date
+    ) AS Previous_Day_Count
+
+FROM DailyAppointments;
+
+--5. Patient Health Progression
+
+SELECT
+    patient_id,
+    record_date,
+    diagnosis,
+
+    LAG(diagnosis)
+    OVER
+    (
+        PARTITION BY patient_id
+        ORDER BY record_date
+    ) AS Previous_Diagnosis
+
+FROM Medical_Record;
+
+
+--TASK 4: AGGREGATE WINDOW FUNCTIONS
+
+--1. Running Total Revenue
+
+SELECT
+    bill_date,
+    SUM(amount) AS Daily_Revenue,
+
+    SUM(SUM(amount))
+    OVER
+    (
+        ORDER BY bill_date
+    ) AS Running_Total
+
+FROM Billing
+
+GROUP BY bill_date;
+
+--2. Department Comparison
+
+SELECT
+    d.doctor_id,
+    d.first_name,
+    d.last_name,
+
+    AVG(d.doctor_id * 1000.0)
+    OVER(PARTITION BY dept_id) AS Dept_Avg_Fee
+
+FROM Doctor d;
+
+--3. Patient Billing Summary
+
+SELECT
+    patient_id,
+    bill_id,
+    amount,
+
+    SUM(amount)
+    OVER
+    (
+        PARTITION BY patient_id
+        ORDER BY bill_date
+    ) AS Running_Total,
+
+    ROUND
+    (
+        amount * 100.0 /
+        SUM(amount)
+        OVER(PARTITION BY patient_id),
+        2
+    ) AS Percent_Contribution
+
+FROM Billing;
+
+--4. Monthly Appointment Trends
+
+SELECT
+    YEAR(appointment_date) AS Yr,
+    MONTH(appointment_date) AS Mn,
+
+    COUNT(*) AS Monthly_Appointments,
+
+    SUM(COUNT(*))
+    OVER
+    (
+        ORDER BY
+        YEAR(appointment_date),
+        MONTH(appointment_date)
+    ) AS Cumulative_Appointments
+
+FROM Appointment
+
+GROUP BY
+YEAR(appointment_date),
+MONTH(appointment_date);
+
+--5. Doctor Workload Analysis
+
+SELECT
+    d.doctor_id,
+    d.first_name,
+    d.last_name,
+
+    COUNT(a.appt_id) AS Doctor_Appointments,
+
+    SUM(COUNT(a.appt_id))
+    OVER
+    (
+        PARTITION BY d.dept_id
+    ) AS Department_Total,
+
+    ROUND
+    (
+        COUNT(a.appt_id)*100.0/
+        SUM(COUNT(a.appt_id))
+        OVER(PARTITION BY d.dept_id),
+        2
+    ) AS Workload_Percentage
+
+FROM Doctor d
+LEFT JOIN Appointment a
+ON d.doctor_id=a.doctor_id
+
+GROUP BY
+d.doctor_id,
+d.first_name,
+d.last_name,
+d.dept_id;
+
+
+--TASK 5: BASIC CTEs
+
+--1. High value Patients
+
+WITH PatientSpending AS
+(
+    SELECT
+        p.patient_id,
+        p.first_name,
+        p.last_name,
+        SUM(b.amount) AS Total_Spending
+    FROM Patient p
+    JOIN Billing b
+        ON p.patient_id = b.patient_id
+    GROUP BY
+        p.patient_id,
+        p.first_name,
+        p.last_name
+)
+
+SELECT *
+FROM PatientSpending
+WHERE Total_Spending > 15000;
+
+--2. Busy Doctors
+
+WITH DoctorAppointments AS
+(
+    SELECT
+        d.doctor_id,
+        d.first_name,
+        d.last_name,
+        COUNT(a.appt_id) AS Appointment_Count
+    FROM Doctor d
+    LEFT JOIN Appointment a
+        ON d.doctor_id = a.doctor_id
+    GROUP BY
+        d.doctor_id,
+        d.first_name,
+        d.last_name
+)
+
+SELECT *
+FROM DoctorAppointments
+WHERE Appointment_Count > 3;
+
+--3. Department Averages
+
+WITH DepartmentRevenue AS
+(
+    SELECT
+        dp.dept_id,
+        dp.dept_name,
+        AVG(b.amount) AS Avg_Bill
+    FROM Department dp
+    JOIN Doctor d
+        ON dp.dept_id = d.dept_id
+    JOIN Appointment a
+        ON d.doctor_id = a.doctor_id
+    JOIN Billing b
+        ON a.patient_id = b.patient_id
+    GROUP BY
+        dp.dept_id,
+        dp.dept_name
+)
+
+SELECT *
+FROM DepartmentRevenue
+WHERE Avg_Bill >
+(
+    SELECT AVG(Avg_Bill)
+    FROM DepartmentRevenue
+);
+
+--4. Recent Patients
+
+WITH RecentPatients AS
+(
+    SELECT
+        patient_id,
+        first_name,
+        last_name,
+        registration_date
+    FROM Patient
+    WHERE registration_date >= DATEADD(DAY,-180,GETDATE())
+)
+
+SELECT
+    rp.patient_id,
+    rp.first_name,
+    rp.last_name,
+    rp.registration_date,
+    COUNT(a.appt_id) AS Appointment_Count
+FROM RecentPatients rp
+LEFT JOIN Appointment a
+    ON rp.patient_id = a.patient_id
+GROUP BY
+    rp.patient_id,
+    rp.first_name,
+    rp.last_name,
+    rp.registration_date;
+
+--5. Unpaid Bills Summary
+
+WITH OutstandingBills AS
+(
+    SELECT
+        patient_id,
+        amount
+    FROM Billing
+    WHERE payment_status IN ('Pending','Cancelled')
+)
+
+SELECT
+    p.patient_id,
+    p.first_name,
+    p.last_name,
+    SUM(ob.amount) AS Outstanding_Amount
+FROM Patient p
+JOIN OutstandingBills ob
+    ON p.patient_id = ob.patient_id
+GROUP BY
+    p.patient_id,
+    p.first_name,
+    p.last_name
+ORDER BY Outstanding_Amount DESC;
+
+--TASK 6: MULTIPLIE CTEs
+
+--1. Three-Tier Patient Analysis
+
+WITH AppointmentStats AS
+(
+    SELECT
+        patient_id,
+        COUNT(appt_id) AS Total_Appointments
+    FROM Appointment
+    GROUP BY patient_id
+),
+
+PatientSpending AS
+(
+    SELECT
+        patient_id,
+        SUM(amount) AS Total_Spending
+    FROM Billing
+    GROUP BY patient_id
+)
+
+SELECT
+    p.patient_id,
+    p.first_name,
+    p.last_name,
+    a.Total_Appointments,
+    s.Total_Spending,
+
+    CASE
+        WHEN a.Total_Appointments > 5
+             AND s.Total_Spending > 20000
+        THEN 'VIP'
+
+        WHEN a.Total_Appointments BETWEEN 3 AND 5
+             OR s.Total_Spending BETWEEN 10000 AND 20000
+        THEN 'Regular'
+
+        ELSE 'Occasional'
+    END AS Patient_Category
+
+FROM Patient p
+LEFT JOIN AppointmentStats a
+    ON p.patient_id = a.patient_id
+LEFT JOIN PatientSpending s
+    ON p.patient_id = s.patient_id
+ORDER BY s.Total_Spending DESC;
+
+--2. Department Performance Dashboard
+
+WITH DoctorCount AS
+(
+    SELECT
+        dept_id,
+        COUNT(*) AS Total_Doctors
+    FROM Doctor
+    GROUP BY dept_id
+),
+
+AppointmentCount AS
+(
+    SELECT
+        d.dept_id,
+        COUNT(a.appt_id) AS Total_Appointments
+    FROM Doctor d
+    LEFT JOIN Appointment a
+        ON d.doctor_id = a.doctor_id
+    GROUP BY d.dept_id
+),
+
+DepartmentRevenue AS
+(
+    SELECT
+        d.dept_id,
+        SUM(b.amount) AS Total_Revenue
+    FROM Doctor d
+    JOIN Appointment a
+        ON d.doctor_id = a.doctor_id
+    JOIN Billing b
+        ON a.patient_id = b.patient_id
+    GROUP BY d.dept_id
+)
+
+SELECT
+    dp.dept_name,
+    dc.Total_Doctors,
+    ac.Total_Appointments,
+    dr.Total_Revenue
+FROM Department dp
+LEFT JOIN DoctorCount dc
+    ON dp.dept_id = dc.dept_id
+LEFT JOIN AppointmentCount ac
+    ON dp.dept_id = ac.dept_id
+LEFT JOIN DepartmentRevenue dr
+    ON dp.dept_id = dr.dept_id
+ORDER BY dr.Total_Revenue DESC;
+
+--3. Billing vs Appointment Analysis
+
+WITH AvgBill AS
+(
+    SELECT
+        AVG(amount) AS Average_Bill
+    FROM Billing
+),
+
+AppointmentsWithoutBills AS
+(
+    SELECT
+        a.appt_id,
+        a.patient_id,
+        a.appointment_date
+    FROM Appointment a
+    LEFT JOIN Billing b
+        ON a.patient_id = b.patient_id
+    WHERE b.bill_id IS NULL
+)
+
+SELECT
+    COUNT(*) AS Unbilled_Appointments,
+    ab.Average_Bill,
+    COUNT(*) * ab.Average_Bill AS Potential_Revenue_Loss
+FROM AppointmentsWithoutBills awb
+CROSS JOIN AvgBill ab
+GROUP BY ab.Average_Bill;
+
+--4. Top Performing Doctors
+
+WITH CompletedAppointments AS
+(
+    SELECT
+        doctor_id,
+        COUNT(*) AS Completed_Count
+    FROM Appointment
+    WHERE status = 'Completed'
+    GROUP BY doctor_id
+),
+
+DoctorRevenue AS
+(
+    SELECT
+        a.doctor_id,
+        SUM(b.amount) AS Revenue_Generated
+    FROM Appointment a
+    JOIN Billing b
+        ON a.patient_id = b.patient_id
+    GROUP BY a.doctor_id
+),
+
+CancellationRate AS
+(
+    SELECT
+        doctor_id,
+
+        CAST(
+            SUM(
+                CASE
+                    WHEN status = 'Cancelled'
+                    THEN 1
+                    ELSE 0
+                END
+            ) * 100.0
+            / COUNT(*)
+            AS DECIMAL(5,2)
+        ) AS Cancellation_Rate
+
+    FROM Appointment
+    GROUP BY doctor_id
+)
+
+SELECT
+    d.doctor_id,
+    d.first_name,
+    d.last_name,
+
+    ISNULL(ca.Completed_Count,0) AS Completed_Appointments,
+    ISNULL(dr.Revenue_Generated,0) AS Revenue_Generated,
+    ISNULL(cr.Cancellation_Rate,0) AS Cancellation_Rate,
+
+    (
+        ISNULL(ca.Completed_Count,0) * 10
+        +
+        ISNULL(dr.Revenue_Generated,0) / 1000.0
+        -
+        ISNULL(cr.Cancellation_Rate,0)
+    ) AS Composite_Score
+
+FROM Doctor d
+
+LEFT JOIN CompletedAppointments ca
+    ON d.doctor_id = ca.doctor_id
+
+LEFT JOIN DoctorRevenue dr
+    ON d.doctor_id = dr.doctor_id
+
+LEFT JOIN CancellationRate cr
+    ON d.doctor_id = cr.doctor_id
+
+ORDER BY Composite_Score DESC;
+
+--TASK 7: CTEs with Window Functions
+
+--1. Top 3 Doctors per Department
+
+WITH DoctorRevenue AS
+(
+    SELECT
+        d.doctor_id,
+        d.first_name,
+        d.last_name,
+        dp.dept_name,
+        SUM(b.amount) AS Revenue
+
+    FROM Doctor d
+
+    JOIN Department dp
+        ON d.dept_id = dp.dept_id
+
+    JOIN Appointment a
+        ON d.doctor_id = a.doctor_id
+
+    JOIN Billing b
+        ON a.patient_id = b.patient_id
+
+    GROUP BY
+        d.doctor_id,
+        d.first_name,
+        d.last_name,
+        dp.dept_name
+),
+
+RankedDoctors AS
+(
+    SELECT *,
+           RANK() OVER
+           (
+               PARTITION BY dept_name
+               ORDER BY Revenue DESC
+           ) AS DoctorRank
+    FROM DoctorRevenue
+)
+
+SELECT *
+FROM RankedDoctors
+WHERE DoctorRank <= 3
+ORDER BY dept_name, DoctorRank;
+
+--2. Patient Spending Percentile
+
+WITH PatientSpending AS
+(
+    SELECT
+        p.patient_id,
+        p.first_name,
+        p.last_name,
+        SUM(b.amount) AS TotalSpending
+
+    FROM Patient p
+    JOIN Billing b
+        ON p.patient_id = b.patient_id
+
+    GROUP BY
+        p.patient_id,
+        p.first_name,
+        p.last_name
+)
+
+SELECT
+    patient_id,
+    first_name,
+    last_name,
+    TotalSpending,
+
+    NTILE(4) OVER
+    (
+        ORDER BY TotalSpending DESC
+    ) AS SpendingQuartile
+
+FROM PatientSpending;
+
+--3. Monthly Revenue Growth
+
+WITH MonthlyRevenue AS
+(
+    SELECT
+        YEAR(bill_date) AS RevenueYear,
+        MONTH(bill_date) AS RevenueMonth,
+        SUM(amount) AS Revenue
+
+    FROM Billing
+
+    GROUP BY
+        YEAR(bill_date),
+        MONTH(bill_date)
+)
+
+SELECT
+    RevenueYear,
+    RevenueMonth,
+    Revenue,
+
+    LAG(Revenue)
+    OVER
+    (
+        ORDER BY RevenueYear, RevenueMonth
+    ) AS PreviousMonthRevenue,
+
+    ROUND
+    (
+        (
+            Revenue -
+            LAG(Revenue)
+            OVER
+            (
+                ORDER BY RevenueYear, RevenueMonth
+            )
+        ) * 100.0
+
+        /
+
+        NULLIF
+        (
+            LAG(Revenue)
+            OVER
+            (
+                ORDER BY RevenueYear, RevenueMonth
+            ),
+            0
+        ),
+        2
+    ) AS GrowthPercentage
+
+FROM MonthlyRevenue;
+
+--4. Cumulative Patient Registration
+
+WITH DailyRegistrations AS
+(
+    SELECT
+        registration_date,
+        COUNT(*) AS DailyCount
+
+    FROM Patient
+
+    GROUP BY registration_date
+)
+
+SELECT
+    registration_date,
+    DailyCount,
+
+    SUM(DailyCount)
+    OVER
+    (
+        ORDER BY registration_date
+    ) AS CumulativePatients
+
+FROM DailyRegistrations;
+
+--5. Department Market Share
+
+WITH DepartmentRevenue AS
+(
+    SELECT
+        dp.dept_name,
+        SUM(b.amount) AS DepartmentRevenue
+
+    FROM Department dp
+
+    JOIN Doctor d
+        ON dp.dept_id = d.dept_id
+
+    JOIN Appointment a
+        ON d.doctor_id = a.doctor_id
+
+    JOIN Billing b
+        ON a.patient_id = b.patient_id
+
+    GROUP BY dp.dept_name
+)
+
+SELECT
+    dept_name,
+    DepartmentRevenue,
+
+    ROUND
+    (
+        DepartmentRevenue * 100.0
+        /
+        SUM(DepartmentRevenue)
+        OVER (),
+        2
+    ) AS MarketSharePercentage
+
+FROM DepartmentRevenue
+
+ORDER BY DepartmentRevenue DESC;
+
+
+--TASK 8: RECURSIVE CTEs
+
+--1. Generate Next 30 Days Hospital Calendar
+
+WITH HospitalCalendar AS
+(
+    SELECT
+        CAST(GETDATE() AS DATE) AS CalendarDate
+
+    UNION ALL
+
+    SELECT
+        DATEADD(DAY, 1, CalendarDate)
+
+    FROM HospitalCalendar
+
+    WHERE CalendarDate <
+          DATEADD(DAY, 29, CAST(GETDATE() AS DATE))
+)
+
+SELECT *
+FROM HospitalCalendar
+OPTION (MAXRECURSION 30);
+
+--2. Appointment Schedule Timeline
+
+WITH DateSeries AS
+(
+    SELECT CAST('2025-01-10' AS DATE) AS ScheduleDate
+
+    UNION ALL
+
+    SELECT DATEADD(DAY,1,ScheduleDate)
+    FROM DateSeries
+    WHERE ScheduleDate < '2026-08-03'
+)
+
+SELECT
+    ds.ScheduleDate,
+    COUNT(a.appt_id) AS TotalAppointments
+FROM DateSeries ds
+LEFT JOIN Appointment a
+    ON ds.ScheduleDate = a.appointment_date
+GROUP BY ds.ScheduleDate
+ORDER BY ds.ScheduleDate
+OPTION (MAXRECURSION 1000);
+
+--3. Patient Visit Sequence
+
+WITH VisitNumbers AS
+(
+    SELECT 1 AS VisitNo
+
+    UNION ALL
+
+    SELECT VisitNo + 1
+    FROM VisitNumbers
+    WHERE VisitNo < 10
+)
+
+SELECT *
+FROM VisitNumbers
+OPTION (MAXRECURSION 10);
+
+--4. Department Hierarchy Report
+
+WITH DepartmentHierarchy AS
+(
+    SELECT
+        CAST('Hospital' AS VARCHAR(100)) AS NodeName,
+        CAST(NULL AS VARCHAR(100)) AS ParentNode,
+        0 AS LevelNo
+
+    UNION ALL
+
+    SELECT
+        dept_name,
+        'Hospital',
+        1
+    FROM Department
+)
+
+SELECT *
+FROM DepartmentHierarchy
+ORDER BY LevelNo, NodeName;
+
+--5. Doctor Reporting Structure
+WITH DoctorHierarchy AS
+(
+    SELECT
+        dp.dept_name,
+        hd.doctor_id AS HeadDoctorID,
+        hd.first_name + ' ' + hd.last_name AS HeadDoctor,
+        d.doctor_id,
+        d.first_name + ' ' + d.last_name AS DoctorName
+    FROM Department dp
+
+    JOIN Doctor hd
+        ON dp.head_doctor_id = hd.doctor_id
+
+    JOIN Doctor d
+        ON dp.dept_id = d.dept_id
+)
+
+SELECT *
+FROM DoctorHierarchy
+ORDER BY dept_name, doctor_id;
+
+
+--TASK 9: CTE vs Subquery Comparison
+
+--1. Simple Filtering
+
+--Version A: Subquerry
+
+USE HealthCarePlus_DB;
+GO
+
+
+SELECT
+    p.patient_id,
+    p.first_name,
+    p.last_name,
+    SUM(b.amount) AS TotalSpending
+FROM Patient p
+JOIN Billing b
+    ON p.patient_id = b.patient_id
+GROUP BY
+    p.patient_id,
+    p.first_name,
+    p.last_name
+HAVING SUM(b.amount) >
+(
+    SELECT AVG(TotalBill)
+    FROM
+    (
+        SELECT SUM(amount) AS TotalBill
+        FROM Billing
+        GROUP BY patient_id
+    ) AS PatientTotals
+);
+
+
+--Version B: CTE
+
+WITH PatientTotals AS
+(
+    SELECT
+        patient_id,
+        SUM(amount) AS TotalBill
+    FROM Billing
+    GROUP BY patient_id
+)
+
+SELECT
+    p.patient_id,
+    p.first_name,
+    p.last_name,
+    pt.TotalBill
+FROM Patient p
+JOIN PatientTotals pt
+    ON p.patient_id = pt.patient_id
+WHERE pt.TotalBill >
+(
+    SELECT AVG(TotalBill)
+    FROM PatientTotals
+);
+
+--2. Multiple References
+
+--Version A: Subquery
+
+SELECT
+    d.doctor_id,
+    d.first_name,
+    d.last_name,
+
+    COUNT(a.appt_id) AS AppointmentCount,
+    SUM(b.amount) AS Revenue
+
+FROM Doctor d
+
+JOIN Appointment a
+    ON d.doctor_id = a.doctor_id
+
+JOIN Billing b
+    ON a.patient_id = b.patient_id
+
+GROUP BY
+    d.doctor_id,
+    d.first_name,
+    d.last_name
+
+HAVING
+
+COUNT(a.appt_id) >
+(
+    SELECT AVG(AppCount)
+    FROM
+    (
+        SELECT COUNT(*) AS AppCount
+        FROM Appointment
+        GROUP BY doctor_id
+    ) X
+)
+
+AND
+
+SUM(b.amount) >
+(
+    SELECT AVG(Revenue)
+    FROM
+    (
+        SELECT
+            SUM(b.amount) AS Revenue
+        FROM Appointment a
+        JOIN Billing b
+            ON a.patient_id=b.patient_id
+        GROUP BY doctor_id
+    ) Y
+);
+
+--Version B: CTE
+
+WITH DoctorStats AS
+(
+    SELECT
+        d.doctor_id,
+        d.first_name,
+        d.last_name,
+
+        COUNT(a.appt_id) AS AppointmentCount,
+        SUM(b.amount) AS Revenue
+
+    FROM Doctor d
+
+    JOIN Appointment a
+        ON d.doctor_id = a.doctor_id
+
+    JOIN Billing b
+        ON a.patient_id = b.patient_id
+
+    GROUP BY
+        d.doctor_id,
+        d.first_name,
+        d.last_name
+)
+
+SELECT *
+FROM DoctorStats
+WHERE AppointmentCount >
+(
+    SELECT AVG(AppointmentCount)
+    FROM DoctorStats
+)
+AND Revenue >
+(
+    SELECT AVG(Revenue)
+    FROM DoctorStats
+);
+
+--3. Complex Multi-Step Analysis
+
+--Version A: Nested Subqueries
+
+SELECT
+    DeptRevenue.dept_name,
+    DeptRevenue.AvgDeptSpending
+
+FROM
+(
+    SELECT
+        dp.dept_name,
+        AVG(b.amount) AS AvgDeptSpending
+
+    FROM Department dp
+
+    JOIN Doctor d
+        ON dp.dept_id=d.dept_id
+
+    JOIN Appointment a
+        ON d.doctor_id=a.doctor_id
+
+    JOIN Billing b
+        ON a.patient_id=b.patient_id
+
+    GROUP BY dp.dept_name
+
+) DeptRevenue
+
+WHERE AvgDeptSpending >
+
+(
+    SELECT AVG(amount) * 1.20
+    FROM Billing
+);
+
+--Version B: Multiple CTEs
+
+WITH HospitalAverage AS
+(
+    SELECT
+        AVG(amount) AS AvgHospitalBill
+    FROM Billing
+),
+
+DepartmentAverage AS
+(
+    SELECT
+        dp.dept_name,
+        AVG(b.amount) AS AvgDeptBill
+
+    FROM Department dp
+
+    JOIN Doctor d
+        ON dp.dept_id = d.dept_id
+
+    JOIN Appointment a
+        ON d.doctor_id = a.doctor_id
+
+    JOIN Billing b
+        ON a.patient_id = b.patient_id
+
+    GROUP BY dp.dept_name
+)
+
+SELECT
+    da.dept_name,
+    da.AvgDeptBill
+FROM DepartmentAverage da
+CROSS JOIN HospitalAverage ha
+WHERE da.AvgDeptBill > ha.AvgHospitalBill * 1.20;
+
+
+--TASK 10
+
+--TASK 10.1 DOCTOR PERFORMANCE SCORECARD
+
+WITH DoctorMetrics AS
+(
+    SELECT
+        d.doctor_id,
+        d.first_name + ' ' + d.last_name AS Doctor_Name,
+        dp.dept_name,
+
+        COUNT(
+            CASE
+                WHEN a.status = 'Completed'
+                THEN a.appt_id
+            END
+        ) AS Completed_Appointments,
+
+        SUM(ISNULL(b.amount,0)) AS Total_Revenue,
+
+        AVG(ISNULL(b.amount,0) * 1.0) AS Avg_Revenue_Per_Appointment
+
+    FROM Doctor d
+
+    JOIN Department dp
+        ON d.dept_id = dp.dept_id
+
+    LEFT JOIN Appointment a
+        ON d.doctor_id = a.doctor_id
+
+    LEFT JOIN Billing b
+        ON a.patient_id = b.patient_id
+
+    GROUP BY
+        d.doctor_id,
+        d.first_name,
+        d.last_name,
+        dp.dept_name
+),
+
+DoctorGrowth AS
+(
+    SELECT
+        doctor_id,
+        Doctor_Name,
+        dept_name,
+        Completed_Appointments,
+        Total_Revenue,
+        Avg_Revenue_Per_Appointment,
+
+        RANK() OVER
+        (
+            ORDER BY Total_Revenue DESC
+        ) AS Revenue_Rank,
+
+        NTILE(4) OVER
+        (
+            ORDER BY Total_Revenue DESC
+        ) AS Revenue_Quartile
+
+    FROM DoctorMetrics
+)
+
+SELECT *
+FROM DoctorGrowth
+ORDER BY Revenue_Rank;
+
+--TASK 10.2 PATIENT JOURNEY ANALYSIS
+
+WITH PatientVisits AS
+(
+    SELECT
+        p.patient_id,
+        p.first_name,
+        p.last_name,
+
+        MIN(a.appointment_date) AS First_Visit,
+        MAX(a.appointment_date) AS Latest_Visit,
+
+        COUNT(a.appt_id) AS Total_Visits
+
+    FROM Patient p
+
+    LEFT JOIN Appointment a
+        ON p.patient_id = a.patient_id
+
+    GROUP BY
+        p.patient_id,
+        p.first_name,
+        p.last_name
+),
+
+PatientSpending AS
+(
+    SELECT
+        patient_id,
+        SUM(amount) AS Total_Spending
+    FROM Billing
+    GROUP BY patient_id
+),
+
+DiagnosisFrequency AS
+(
+    SELECT
+        patient_id,
+        diagnosis,
+
+        ROW_NUMBER() OVER
+        (
+            PARTITION BY patient_id
+            ORDER BY COUNT(*) DESC
+        ) AS rn
+
+    FROM Medical_Record
+
+    GROUP BY
+        patient_id,
+        diagnosis
+)
+
+SELECT
+    pv.patient_id,
+    pv.first_name,
+    pv.last_name,
+
+    pv.First_Visit,
+    pv.Latest_Visit,
+    pv.Total_Visits,
+
+    ps.Total_Spending,
+
+    CASE
+        WHEN pv.Total_Visits >= 3
+             OR ps.Total_Spending >= 15000
+        THEN 'High Risk'
+
+        WHEN pv.Total_Visits = 2
+        THEN 'Medium Risk'
+
+        ELSE 'Low Risk'
+    END AS Risk_Category
+
+FROM PatientVisits pv
+
+LEFT JOIN PatientSpending ps
+    ON pv.patient_id = ps.patient_id
+
+ORDER BY ps.Total_Spending DESC;
+
+--TASK 10.3 REVENUE TREND ANALYSIS
+
+WITH DailyRevenue AS
+(
+    SELECT
+        bill_date,
+        SUM(amount) AS Daily_Revenue
+    FROM Billing
+    GROUP BY bill_date
+),
+
+RevenueAnalysis AS
+(
+    SELECT
+        bill_date,
+        Daily_Revenue,
+
+        SUM(Daily_Revenue)
+        OVER
+        (
+            ORDER BY bill_date
+        ) AS Running_Total,
+
+        AVG(Daily_Revenue * 1.0)
+        OVER
+        (
+            ORDER BY bill_date
+            ROWS BETWEEN 2 PRECEDING AND CURRENT ROW
+        ) AS Moving_Average
+    FROM DailyRevenue
+),
+
+DepartmentRevenue AS
+(
+    SELECT
+        dp.dept_name,
+        SUM(b.amount) AS Revenue
+
+    FROM Department dp
+
+    JOIN Doctor d
+        ON dp.dept_id = d.dept_id
+
+    JOIN Appointment a
+        ON d.doctor_id = a.doctor_id
+
+    JOIN Billing b
+        ON a.patient_id = b.patient_id
+
+    GROUP BY dp.dept_name
+)
+
+SELECT
+    bill_date,
+    Daily_Revenue,
+    Running_Total,
+    Moving_Average
+FROM RevenueAnalysis
+
+ORDER BY bill_date;
+
+-- DEPARTMENT REVENUE BREAKDOWN QUERY
+
+WITH DepartmentRevenue AS
+(
+    SELECT
+        dp.dept_name,
+        SUM(b.amount) AS Revenue
+
+    FROM Department dp
+
+    JOIN Doctor d
+        ON dp.dept_id = d.dept_id
+
+    JOIN Appointment a
+        ON d.doctor_id = a.doctor_id
+
+    JOIN Billing b
+        ON a.patient_id = b.patient_id
+
+    GROUP BY dp.dept_name
+)
+
+SELECT
+    dept_name,
+    Revenue,
+
+    ROUND
+    (
+        Revenue * 100.0
+        /
+        SUM(Revenue) OVER(),
+        2
+    ) AS Revenue_Percentage
+
+FROM DepartmentRevenue
+
+ORDER BY Revenue DESC;
